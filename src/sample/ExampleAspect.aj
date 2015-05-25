@@ -1,37 +1,81 @@
 package sample;
 
 import java.net.URI;
+import java.util.LinkedList;
 
-import com.atlassian.jira.rest.client.JiraRestClient;
-import com.atlassian.jira.rest.client.domain.BasicIssue;
-import com.atlassian.jira.rest.client.domain.input.IssueInput;
-import com.atlassian.jira.rest.client.domain.input.IssueInputBuilder;
+import org.omg.CosNaming.NamingContextPackage.AlreadyBound;
+
+import com.atlassian.jira.rest.client.api.JiraRestClient;
+import com.atlassian.jira.rest.client.api.JiraRestClientFactory;
+import com.atlassian.jira.rest.client.api.domain.BasicIssue;
+import com.atlassian.jira.rest.client.api.domain.Issue;
+import com.atlassian.jira.rest.client.api.domain.IssueType;
+import com.atlassian.jira.rest.client.api.domain.input.IssueInput;
+import com.atlassian.jira.rest.client.api.domain.input.IssueInputBuilder;
+import com.atlassian.jira.rest.client.auth.BasicHttpAuthenticationHandler;
+import com.atlassian.jira.rest.client.internal.async.AsynchronousJiraRestClientFactory;
+import com.atlassian.util.concurrent.Promise;
 
 public aspect ExampleAspect {
 	pointcut any_function(): execution(* *(..));
 	
+	LinkedList<Exception> exceptionList = new LinkedList<Exception>();
+	
 	after() throwing (Exception e): any_function(){
 		//
 		try {
-			JerseyJiraRestClientFactory factory = new JerseyJiraRestClientFactory();
-	        URI jiraServerUri = new URI("http://localhost:8090/jira");
-	        JiraRestClient restClient = factory.createWithBasicHttpAuthentication(jiraServerUri, "ziewiec", "Sofobega");
-	        NullProgressMonitor pm = new NullProgressMonitor();
-	        IssueInputBuilder issueInputBuilder = new IssueInputBuilder();
-	        IssueInput issueInput = issueInputBuilder.setDescription(e.getStackTrace().toString())
-	        		.setSummary(e.getMessage())
-	        		.setProjectKey("AGE")
-	        		.setIssueTypeID(0)
-	        		.setComponent{"TestComponent"})
-	        		.build();
-	        Promise<BasicIssue> pBasicIssue = restClient.getIssueClient().createIssue(issueInput);
-	        BasicIssue issue = pBasicIssue.get(100, TimeUnit.MINUTES);
-	        System.err.println("Issue created: " + issue.getKey());
-			//System.err.println("Exception captured: " + e.toString());
+			if(!alreadyThrown(e))
+			{
+			exceptionOccures(e);
+			URI jiraServerUri = new URI("https://issues.age.agh.edu.pl");
+			JiraRestClientFactory restClientFactory = new AsynchronousJiraRestClientFactory();
+			JiraRestClient restClient = restClientFactory.createWithBasicHttpAuthentication(jiraServerUri, "ziewiec", "Sofobega");
+			
+			Iterable<IssueType> issueTypes = restClient.getMetadataClient().getIssueTypes().claim();
+			IssueType chosenIssueType = null;
+			for(IssueType issueType : issueTypes){
+				chosenIssueType = issueType;
+				if(issueType.getName().contains("Task") && !issueType.isSubtask()){
+					break;
+				}
+			}
+			
+			//populate issue fields
+			IssueInputBuilder issueBuilder = new IssueInputBuilder("TEST", chosenIssueType.getId());//IssueInputBuilder("TEST", 0);
+			issueBuilder.setSummary("Exception occured : " + e.getMessage());
+			
+			String stackTraceString = new String();
+			for(StackTraceElement stackTraceElem: e.getStackTrace()){
+				//System.out.println(stackTraceElem.toString());
+				stackTraceString += stackTraceElem.toString();
+				stackTraceString += "\n";
+			}
+			issueBuilder.setDescription(stackTraceString);
+			issueBuilder.setProjectKey("TEST");
+			
+			//System.out.println(stackTraceString);
+
+			//create the issue
+			//NullProgressMonitor pm = new NullProgressMonitor();
+			IssueInput issueInput = issueBuilder.build();
+			BasicIssue bIssue = restClient.getIssueClient().createIssue(issueInput).claim();
+
+			//get the newly created issue
+			Issue jIssue = restClient.getIssueClient().getIssue(bIssue.getKey()).claim();
+			}
 		} catch (Exception e1) {
 			// TODO Auto-generated catch block
 			e1.printStackTrace();
 		}
+	}
+
+	private void exceptionOccures(Exception e) {
+		exceptionList.add(e);
+		
+	}
+
+	private boolean alreadyThrown(Exception e) {
+		return exceptionList.contains(e);
 	}
 
 }
